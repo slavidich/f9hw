@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<html>
+<head>
+<script src="https://code.jquery.com/jquery-3.7.0.js"></script>
+
+<script language="javascript" type="text/javascript">
+    $(document).ready(function(){
+        let conn = null;
+        let username = null
+        let pongReceived = false;
+        function log(msg){
+            let control = $('#log')
+            control.html(control.html()+msg +"<br/>")
+            control.scrollTop(control.scrollTop() + 1000);
+        }
+        function sendmsg(data){
+            conn.send(JSON.stringify(data))
+        }
+        $('#connect').click(()=> connect())
+        function connect(){
+            conn = new WebSocket("http://localhost:8080/");
+            conn.onopen = function() {
+                username = $('#username').val()
+                sendmsg({type:'login', data:{username:username}})
+                $('#connect').prop('disabled', true)
+                $('#username').prop('disabled', true)
+                startHeartbeat()
+            };
+            conn.onclose = function(){
+                username = null;
+                $('#connect').prop('disabled', false)
+                $('#status').text('Disconnected')
+                $('#username').prop('disabled', false)
+                $('#send').prop('disabled', true)
+                $('#text').prop('disabled', true)
+            }
+            conn.onmessage = function(e){
+                console.log(e)
+                const data = JSON.parse(e.data)
+                
+                if (data.type==="loginsuccess"){
+                    $('#status').text('Connected')
+                    $('#send').prop('disabled', false)
+                    $('#text').prop('disabled', false)
+                    $('#pingstatus').text(`Связь в норме, последняя проверка: ${Date()}`)
+                }
+                if (data.type==='loginerror'){
+                    conn.close()
+                    alert('Имя пользвователя уже занято!')
+                    $('#connect').prop('disabled', false)
+                    $('#username').prop('disabled', false)
+                }
+                if (data.type==="message"){
+                    if (data.data.username!=username){
+                        log(`${data.data.username}:${data.data.text}`)
+                    }
+                }//
+                if (data.type==='news'){
+                    log(`<b>Новость:${data.text}</b>`)
+                }
+                if (data.type==='pong'){
+                    pongReceived = true;
+                }
+            }
+        }
+        function sendPing() {
+            pongReceived = false; // Сбрасываем флаг перед отправкой ping
+            conn.send(JSON.stringify({ 'type': 'ping' }));
+            return new Promise((resolve, reject) => {
+                setTimeout(() => {
+                    if (!pongReceived) {
+                        reject(new Error("Нет ответа от сервера."));
+                    } else {
+                        resolve();
+                    }
+                }, 1000); // Ожидаем ответ в течение 1 секунды
+            });
+        }
+        function startHeartbeat() {
+            const heartbeatInterval = setInterval(() => {
+                sendPing()
+                    .then(() => $('#pingstatus').text(`Связь в норме, последняя проверка: ${Date()}`))
+                    .catch((error) => {
+                        $('#pingstatus').text(`Связь потеряна!`);// Закрываем соединение, если нет ответа от сервера
+                        conn.close();
+                        clearInterval(heartbeatInterval);
+                    });
+            }, 5000); // Пинг каждые 5 секунд
+        }
+        
+        $('#send').click(function() {
+            sendmsg({type: "message", data:{username:username, text:$('#text').val()}})
+            log("Вы: "+ $('#text').val())
+            $('#text').val('').focus();
+            return false;
+        });
+        $('#text').keyup(function(e) {
+            if (e.keyCode === 13) {
+                $('#send').click();
+                return false;
+            }
+        });
+        $("#username").keyup(function(e){
+            if ((this.value).length>1) {
+                $('#connect').prop('disabled', false)
+            }
+            else{
+                $('#connect').prop('disabled', true)
+            }
+        })
+    })
+</script>
+
+</head>
+<body>
+<h3>Chat!</h3>
+<div>
+  <button id="connect" disabled>Connect</button>&nbsp;|&nbsp;Status:
+  <span id="status">Disconnected</span>
+</div>
+<div>
+    <span>Ваше имя:</span>
+    <input id="username" type="text" placeholder="Введите Ваше имя!"/>
+</div>
+
+<div id="log"
+     style="width:20em;height:15em;overflow:auto;border:1px solid black">
+</div>
+<form id="chatform" onsubmit="return false;">
+  <input id="text" disabled type="text" />
+  <input id="send" disabled type="button" value="Send" />
+</form>
+<p id="pingstatus"></p>
+</body>
+</html>
